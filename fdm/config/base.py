@@ -57,6 +57,23 @@ def usrcomp_watchdog(comps, enableSignal, thread,
 def setup_stepper(stepgenIndex, section, axisIndex=None,
                   stepgenType='hpg.stepgen', gantry=False,
                   gantryJoint=0, velocitySignal=None, thread=None):
+    prufix = not velocitySignal
+    if prufix:
+        pid = 'pid.pru-stepgen-%i' % stepgenIndex
+        pidComp = rt.newinst('pid', pid)
+        hal.addf('%s.do-pid-calcs' % pidComp.name, thread)
+        pidComp.pin('Pgain').set(c.find(section, 'P'))
+        pidComp.pin('Igain').set(c.find(section, 'I'))
+        pidComp.pin('Dgain').set(c.find(section, 'D'))
+        pidComp.pin('bias').set(c.find(section, 'BIAS'))
+        pidComp.pin('FF0').set(c.find(section, 'FF0'))
+        pidComp.pin('FF1').set(c.find(section, 'FF1'))
+        pidComp.pin('FF2').set(c.find(section, 'FF2'))
+        pidComp.pin('deadband').set(c.find(section, 'DEADBAND'))
+        pidComp.pin('maxoutput').set(c.find(section, 'MAX_OUTPUT'))
+        pidComp.pin('maxerror').set(c.find(section, 'MAX_ERROR'))
+        pidComp.pin('error-previous-target').set(True)
+
     stepgen = '%s.%02i' % (stepgenType, stepgenIndex)
     if axisIndex is not None:
         axis = 'axis.%i' % axisIndex
@@ -71,6 +88,8 @@ def setup_stepper(stepgenIndex, section, axisIndex=None,
     if hasMotionAxis:
         enable.link('%s.amp-enable-out' % axis)
     enable.link('%s.enable' % stepgen)
+    if prufix:
+        enable.link('%s.enable' % pid)
 
     # expose timing parameters so we can multiplex them later
     sigBase = 'stepgen-%i' % stepgenIndex
@@ -109,13 +128,23 @@ def setup_stepper(stepgenIndex, section, axisIndex=None,
             posCmd = hal.newsig('emcmot-%i-pos-cmd' % axisIndex, hal.HAL_FLOAT)
             posCmd.link('%s.motor-pos-cmd' % axis)
             if not gantry:
-                posCmd.link('%s.position-cmd' % stepgen)
+                if prufix:
+                    posCmd.link('%s.command' % pid)
+                else:
+                    posCmd.link('%s.position-cmd' % stepgen)
             else:
                 posCmd.link('gantry.%i.position-cmd' % axisIndex)
+
+            if prufix:
+                velCmd = hal.newsig('emcmot-%i-vel-cmd' % axisIndex, hal.HAL_FLOAT)
+                velCmd.link('%s.joint-vel-cmd' % axis)
+                velCmd.link('%s.command-deriv' % pid)
 
             posFb = hal.newsig('emcmot-%i-pos-fb' % axisIndex, hal.HAL_FLOAT)
             posFb.link('%s.motor-pos-fb' % axis)
             if not gantry:
+                if prufix:
+                    posFb.link('%s.feedback' % pid)
                 posFb.link('%s.position-fb' % stepgen)
             else:
                 posFb.link('gantry.%i.position-fb' % axisIndex)
@@ -123,13 +152,24 @@ def setup_stepper(stepgenIndex, section, axisIndex=None,
         if gantry:  # per joint fb and cmd
             posCmd = hal.newsig('emcmot-%i-%i-pos-cmd' % (axisIndex, gantryJoint), hal.HAL_FLOAT)
             posCmd.link('gantry.%i.joint.%02i.pos-cmd' % (axisIndex, gantryJoint))
-            posCmd.link('%s.position-cmd' % stepgen)
+            if prufix:
+                posCmd.link('%s.command' % pid)
+            else:
+                posCmd.link('%s.position-cmd' % stepgen)
 
             posFb = hal.newsig('emcmot-%i-%i-pos-fb' % (axisIndex, gantryJoint), hal.HAL_FLOAT)
+            if prufix:
+                posFb.link('%s.feedback' % pid)
             posFb.link('%s.position-fb' % stepgen)
             posFb.link('gantry.%i.joint.%02i.pos-fb' % (axisIndex, gantryJoint))
     else:  # velocity control
         hal.net(velocitySignal, '%s.velocity-cmd' % stepgen)
+        controlType.set(1)  # enable velocity control
+
+    if prufix:
+        command = hal.newsig('stepgen-%i-command' % stepgenIndex, hal.HAL_FLOAT)
+        command.link('%s.output' % pid)
+        command.link('%s.velocity-cmd' % stepgen)
         controlType.set(1)  # enable velocity control
 
     # limits
@@ -249,6 +289,15 @@ def create_temperature_control(name, section, thread, hardwareOkSignal=None,
     tempRangeMax = hal.newsig('%s-temp-range-max' % name, hal.HAL_FLOAT)
     noErrorIn = hal.newsig('%s-no-error-in' % name, hal.HAL_BIT)
     errorIn = hal.newsig('%s-error-in' % name, hal.HAL_BIT)
+
+    # reset set temperature when estop is cleared
+    reset = rt.newinst('reset', 'reset.%s-temp-set' % name)
+    hal.addf(reset.name, thread)
+    reset.pin('reset-float').set(0.0)
+    reset.pin('out-float').link(tempSet)
+    reset.pin('rising').set(True)
+    reset.pin('falling').set(False)
+    reset.pin('trigger').link('estop-reset')
 
     tempPidBiasOut = tempPidBias
     # coolingFan compensation
@@ -426,6 +475,15 @@ def setup_fan(name, thread):
     setSig = hal.newsig('%s-set' % name, hal.HAL_FLOAT)
     pwmSig = hal.newsig('%s-pwm' % name, hal.HAL_FLOAT)
     enable = hal.newsig('%s-enable' % name, hal.HAL_BIT)
+
+    # reset fan when estop is cleared
+    reset = rt.newinst('reset', 'reset.%s-set' % name)
+    hal.addf(reset.name, thread)
+    reset.pin('reset-float').set(0.0)
+    reset.pin('out-float').link(setSig)
+    reset.pin('rising').set(True)
+    reset.pin('falling').set(False)
+    reset.pin('trigger').link('estop-reset')
 
     scale = rt.newinst('scale', 'scale.%s' % name)
     hal.addf(scale.name, thread)
