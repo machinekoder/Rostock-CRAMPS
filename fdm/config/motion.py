@@ -5,6 +5,10 @@ from machinekit import config as c
 
 def setup_motion(kinematics='trivkins'):
     rt.loadrt(kinematics)
+    if kinematics is 'lineardeltakins':
+        hal.Pin('lineardeltakins.L').set(c.find('MACHINE', 'CF_ROD'))
+        hal.Pin('lineardeltakins.R').set(c.find('MACHINE', 'DELTA_R'))
+
     rt.loadrt('tp')
 
     # motion controller, get name and thread periods from ini file
@@ -12,7 +16,8 @@ def setup_motion(kinematics='trivkins'):
               servo_period_nsec=c.find('EMCMOT', 'SERVO_PERIOD'),
               num_joints=c.find('TRAJ', 'AXES'),
               num_aio=51,
-              num_dio=21)
+              num_dio=21,
+              kins=kinematics)
 
 
 def setup_temperature_io(name):

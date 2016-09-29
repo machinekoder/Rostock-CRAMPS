@@ -14,8 +14,8 @@ try:
     launcher.check_installation()
     launcher.cleanup_session()
     launcher.load_bbio_file('cramps2_cape.bbio')
-    launcher.start_process("configserver -n MendelMax ~/Machineface")
-    launcher.start_process('linuxcnc fabrikator-mini.ini')
+    launcher.start_process("configserver -n Rostock ~/Machineface")
+    launcher.start_process('machinekit rostock.ini')
     while True:
         launcher.check_processes()
         time.sleep(1)

@@ -16,7 +16,7 @@ rt.init_RTAPI()
 # loads the ini file passed by linuxcnc
 c.load_ini(os.environ['INI_FILE_NAME'])
 
-motion.setup_motion()
+motion.setup_motion('lineardeltakins')
 hardware.init_hardware()
 storage.init_storage('storage.ini')
 
